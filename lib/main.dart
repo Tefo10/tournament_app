@@ -27,6 +27,7 @@ final ThemeData _epicDarkTheme = ThemeData(
     primary: Color(0xFF00FFE0),
     secondary: Color(0xFFFF2E63),
     surface: Color(0xFF1C1C1E),
+    background: Color(0xFF0D0D0D),
     error: Color(0xFFFF3B30),
     onPrimary: Colors.black,
     onSecondary: Colors.black,

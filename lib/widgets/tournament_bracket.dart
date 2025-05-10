@@ -3,15 +3,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../models/match.dart';
 import '../models/team.dart';
+import '../models/esport_game.dart';
+import '../models/tournament_format.dart';
+import '../services/tournament_generator.dart';
+import '../models/esports_tournament_generator.dart';
 
 class TournamentBracket extends StatefulWidget {
   final List<dynamic> participants;
   final bool isTeamMode;
+  final bool isEsportsMode;
+  final EsportGame? selectedGame;
+  final TournamentFormat tournamentFormat;
 
   const TournamentBracket({
     super.key,
     required this.participants,
     this.isTeamMode = false,
+    this.isEsportsMode = false,
+    this.selectedGame,
+    required this.tournamentFormat,
   });
 
   @override
@@ -70,83 +80,85 @@ class _TournamentBracketState extends State<TournamentBracket>
     Future.delayed(const Duration(milliseconds: 1200), () {
       setState(() {
         _shuffledParticipants.shuffle();
-        _matches = _generateInitialMatches(_shuffledParticipants);
+
+        final settings = TournamentSettings(
+          format: widget.tournamentFormat,
+          numberOfGroups: 4,
+          numberOfSeeds: widget.participants.length >= 8 ? 4 : 2,
+        );
+
+        _matches = widget.isEsportsMode && widget.selectedGame != null
+            ? EsportsTournamentGenerator.generateMatches(
+                _shuffledParticipants,
+                settings,
+                widget.selectedGame!,
+              )
+            : TournamentGenerator.generateMatches(
+                _shuffledParticipants,
+                settings,
+              );
       });
     });
-  }
-
-  List<Match> _generateInitialMatches(List<dynamic> players) {
-    List<Match> matches = [];
-    int matchCount = 1;
-
-    for (var i = 0; i < players.length; i += 2) {
-      if (i + 1 < players.length) {
-        matches.add(Match(
-          id: 'R1M$matchCount',
-          participant1: players[i],
-          participant2: players[i + 1],
-          roundNumber: 1,
-          matchNumber: matchCount,
-        ));
-      } else {
-        matches.add(Match(
-          id: 'R1M$matchCount',
-          participant1: players[i],
-          participant2:
-              widget.isTeamMode ? Team(name: 'BYE', members: []) : 'BYE',
-          roundNumber: 1,
-          matchNumber: matchCount,
-        ));
-      }
-      matchCount++;
-    }
-
-    return matches;
   }
 
   void _declareWinner(Match match, dynamic winner) {
     setState(() {
       final matchIndex = _matches.indexWhere((m) => m.id == match.id);
       if (matchIndex != -1) {
+        // Determine the loser
+        final loser = winner == match.participant1
+            ? match.participant2
+            : match.participant1;
+
         _matches[matchIndex] = match.copyWith(
           winner: winner,
+          loser: loser,
           isCompleted: true,
         );
 
+        // Update next matches
+        if (match.nextWinnerMatchId != null) {
+          final nextWinnerMatch = _matches.firstWhere(
+            (m) => m.id == match.nextWinnerMatchId,
+          );
+
+          final nextMatchIndex = _matches.indexOf(nextWinnerMatch);
+          if (nextMatchIndex != -1) {
+            _matches[nextMatchIndex] = nextWinnerMatch.copyWith(
+              participant1: nextWinnerMatch.participant1 ?? winner,
+              participant2: nextWinnerMatch.participant2 == null
+                  ? winner
+                  : nextWinnerMatch.participant2,
+            );
+          }
+        }
+
+        if (match.nextLoserMatchId != null && loser != null) {
+          final nextLoserMatch = _matches.firstWhere(
+            (m) => m.id == match.nextLoserMatchId,
+          );
+
+          final nextMatchIndex = _matches.indexOf(nextLoserMatch);
+          if (nextMatchIndex != -1) {
+            _matches[nextMatchIndex] = nextLoserMatch.copyWith(
+              participant1: nextLoserMatch.participant1 ?? loser,
+              participant2: nextLoserMatch.participant2 == null
+                  ? loser
+                  : nextLoserMatch.participant2,
+            );
+          }
+        }
+
+        // Check if current round is complete
         final currentRoundMatches =
             _matches.where((m) => m.roundNumber == _currentRound);
         final allMatchesComplete =
             currentRoundMatches.every((m) => m.isCompleted);
 
         if (allMatchesComplete && _currentRound < _totalRounds) {
-          _advanceToNextRound();
+          _currentRound++;
         }
       }
-    });
-  }
-
-  void _advanceToNextRound() {
-    final currentRoundMatches =
-        _matches.where((m) => m.roundNumber == _currentRound).toList();
-    final winners = currentRoundMatches.map((m) => m.winner).toList();
-    int nextRound = _currentRound + 1;
-    int matchCount = 1;
-
-    for (var i = 0; i < winners.length; i += 2) {
-      if (i + 1 < winners.length) {
-        _matches.add(Match(
-          id: 'R${nextRound}M$matchCount',
-          participant1: winners[i],
-          participant2: winners[i + 1],
-          roundNumber: nextRound,
-          matchNumber: matchCount,
-        ));
-      }
-      matchCount++;
-    }
-
-    setState(() {
-      _currentRound = nextRound;
     });
   }
 
@@ -163,9 +175,11 @@ class _TournamentBracketState extends State<TournamentBracket>
         if (!_showMatches) _buildShufflingAnimation(),
         if (_showMatches) _buildMatchesDisplay(),
         const SizedBox(height: 20),
-        if (_showMatches && _currentRound < _totalRounds)
+        if (_showMatches)
           Text(
-            'Ronda $_currentRound de $_totalRounds',
+            widget.tournamentFormat == TournamentFormat.groupStage
+                ? 'Fase de Grupos'
+                : 'Ronda $_currentRound de $_totalRounds',
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -220,7 +234,8 @@ class _TournamentBracketState extends State<TournamentBracket>
                                 ? Team(name: '', members: [])
                                 : ''),
                         isTeamMode: widget.isTeamMode,
-                        showMembers: false,
+                        isEsportsMode: widget.isEsportsMode,
+                        selectedGame: widget.selectedGame,
                       ),
                     ),
                   ),
@@ -253,6 +268,8 @@ class _TournamentBracketState extends State<TournamentBracket>
               child: MatchupCard(
                 match: match,
                 isTeamMode: widget.isTeamMode,
+                isEsportsMode: widget.isEsportsMode,
+                selectedGame: widget.selectedGame,
                 onWinnerSelected: _declareWinner,
               ),
             );
@@ -266,23 +283,28 @@ class _TournamentBracketState extends State<TournamentBracket>
 class TournamentCard extends StatelessWidget {
   final dynamic participant;
   final bool isTeamMode;
-  final bool showMembers;
+  final bool isEsportsMode;
+  final EsportGame? selectedGame;
 
   const TournamentCard({
     super.key,
     required this.participant,
     required this.isTeamMode,
-    this.showMembers = true,
+    this.isEsportsMode = false,
+    this.selectedGame,
   });
 
   @override
   Widget build(BuildContext context) {
     String displayName = '';
-    List<String> members = [];
+    String? subtitle;
 
-    if (isTeamMode && participant is Team) {
-      displayName = participant.name;
-      members = participant.members;
+    if (isTeamMode) {
+      if (participant is Team) {
+        displayName = participant.name;
+        subtitle =
+            '${participant.members.length} ${isEsportsMode ? 'jugadores' : 'miembros'}';
+      }
     } else {
       displayName = participant.toString();
     }
@@ -303,6 +325,13 @@ class TournamentCard extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (isEsportsMode && selectedGame != null) ...[
+              Text(
+                selectedGame!.icon,
+                style: const TextStyle(fontSize: 24),
+              ),
+              const SizedBox(height: 4),
+            ],
             Text(
               displayName,
               textAlign: TextAlign.center,
@@ -311,23 +340,15 @@ class TournamentCard extends StatelessWidget {
                 fontSize: 16,
               ),
             ),
-            if (showMembers &&
-                isTeamMode &&
-                participant is Team &&
-                members.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              const Divider(height: 1),
-              const SizedBox(height: 8),
-              ...members.map((member) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(
-                      member,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withOpacity(0.7),
-                      ),
-                    ),
-                  )),
+            if (subtitle != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.white.withOpacity(0.7),
+                ),
+              ),
             ],
           ],
         ),
@@ -339,12 +360,16 @@ class TournamentCard extends StatelessWidget {
 class MatchupCard extends StatelessWidget {
   final Match match;
   final bool isTeamMode;
+  final bool isEsportsMode;
+  final EsportGame? selectedGame;
   final Function(Match, dynamic) onWinnerSelected;
 
   const MatchupCard({
     super.key,
     required this.match,
     required this.isTeamMode,
+    this.isEsportsMode = false,
+    this.selectedGame,
     required this.onWinnerSelected,
   });
 
@@ -355,7 +380,7 @@ class MatchupCard extends StatelessWidget {
       }
       return "BYE";
     }
-    return participant.toString();
+    return participant?.toString() ?? "BYE";
   }
 
   @override
@@ -385,30 +410,38 @@ class MatchupCard extends StatelessWidget {
         ),
         child: Column(
           children: [
-            Text(
-              'Encuentro #${match.matchNumber}',
-              style: TextStyle(
-                color: Colors.tealAccent.withOpacity(0.7),
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Encuentro #${match.matchNumber}',
+                  style: TextStyle(
+                    color: Colors.tealAccent.withOpacity(0.7),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (isEsportsMode && selectedGame != null)
+                  Text(
+                    selectedGame!.icon,
+                    style: const TextStyle(fontSize: 20),
+                  ),
+              ],
             ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: TournamentCard(
-                    participant: match.participant1,
-                    isTeamMode: isTeamMode,
-                    showMembers: true,
+                  child: _buildParticipantSection(
+                    name1,
+                    match.participant1,
+                    match.winner == match.participant1,
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 8,
-                    horizontal: 12,
-                  ),
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                   decoration: BoxDecoration(
                     color: Colors.tealAccent.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(12),
@@ -422,10 +455,10 @@ class MatchupCard extends StatelessWidget {
                   ),
                 ),
                 Expanded(
-                  child: TournamentCard(
-                    participant: match.participant2,
-                    isTeamMode: isTeamMode,
-                    showMembers: true,
+                  child: _buildParticipantSection(
+                    name2,
+                    match.participant2,
+                    match.winner == match.participant2,
                   ),
                 ),
               ],
@@ -459,6 +492,48 @@ class MatchupCard extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildParticipantSection(
+      String name, dynamic participant, bool isWinner) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: isWinner ? Colors.tealAccent.withOpacity(0.1) : null,
+        borderRadius: BorderRadius.circular(8),
+        border:
+            isWinner ? Border.all(color: Colors.tealAccent, width: 2) : null,
+      ),
+      child: Column(
+        children: [
+          Text(
+            name,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              color: isWinner ? Colors.tealAccent : Colors.white,
+            ),
+          ),
+          if (isTeamMode &&
+              participant is Team &&
+              participant.members.isNotEmpty)
+            Text(
+              '${participant.members.length} ${isEsportsMode ? 'jugadores' : 'miembros'}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withOpacity(0.7),
+              ),
+            ),
+          if (isWinner)
+            const Icon(
+              Icons.emoji_events,
+              color: Colors.tealAccent,
+              size: 20,
+            ),
+        ],
       ),
     );
   }

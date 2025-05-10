@@ -1,10 +1,20 @@
 import 'package:flutter/material.dart';
 import '../models/team.dart';
+import '../models/esport_game.dart';
 
 class TeamInputDialog extends StatefulWidget {
   final Team? initialTeam;
+  final int playersPerTeam;
+  final bool isEsportsMode;
+  final EsportGame? selectedGame;
 
-  const TeamInputDialog({super.key, this.initialTeam});
+  const TeamInputDialog({
+    super.key,
+    this.initialTeam,
+    required this.playersPerTeam,
+    this.isEsportsMode = false,
+    this.selectedGame,
+  });
 
   @override
   State<TeamInputDialog> createState() => _TeamInputDialogState();
@@ -29,7 +39,10 @@ class _TeamInputDialogState extends State<TeamInputDialog> {
           .map((name) => TextEditingController(text: name))
           .toList();
     } else {
-      _memberControllers = [TextEditingController()];
+      _memberControllers = List.generate(
+        widget.playersPerTeam,
+        (_) => TextEditingController(),
+      );
     }
   }
 
@@ -43,9 +56,11 @@ class _TeamInputDialogState extends State<TeamInputDialog> {
   }
 
   void _addMemberField() {
-    setState(() {
-      _memberControllers.add(TextEditingController());
-    });
+    if (_memberControllers.length < widget.playersPerTeam) {
+      setState(() {
+        _memberControllers.add(TextEditingController());
+      });
+    }
   }
 
   void _removeMemberField(int index) {
@@ -80,6 +95,16 @@ class _TeamInputDialogState extends State<TeamInputDialog> {
                   color: Colors.white,
                 ),
               ),
+              if (widget.isEsportsMode && widget.selectedGame != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  widget.selectedGame!.name,
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.tealAccent.withOpacity(0.7),
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
               TextFormField(
                 controller: _teamNameController,
@@ -98,12 +123,28 @@ class _TeamInputDialogState extends State<TeamInputDialog> {
                 },
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Miembros del Equipo',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Miembros del Equipo',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (widget.isEsportsMode) ...[
+                    Text(
+                      '${_memberControllers.length}/${widget.playersPerTeam}',
+                      style: TextStyle(
+                        color:
+                            _memberControllers.length == widget.playersPerTeam
+                                ? Colors.tealAccent
+                                : Colors.orange,
+                      ),
+                    ),
+                  ],
+                ],
               ),
               const SizedBox(height: 8),
               ...List.generate(
@@ -116,12 +157,20 @@ class _TeamInputDialogState extends State<TeamInputDialog> {
                         child: TextFormField(
                           controller: _memberControllers[index],
                           decoration: InputDecoration(
-                            labelText: 'Miembro ${index + 1}',
+                            labelText: 'Jugador ${index + 1}',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                             prefixIcon: const Icon(Icons.person),
                           ),
+                          validator: widget.isEsportsMode
+                              ? (value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Nombre del jugador requerido';
+                                  }
+                                  return null;
+                                }
+                              : null,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -135,15 +184,16 @@ class _TeamInputDialogState extends State<TeamInputDialog> {
                 ),
               ),
               const SizedBox(height: 8),
-              ElevatedButton.icon(
-                onPressed: _addMemberField,
-                icon: const Icon(Icons.add),
-                label: const Text('Agregar Miembro'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.tealAccent.withOpacity(0.2),
-                  foregroundColor: Colors.tealAccent,
+              if (_memberControllers.length < widget.playersPerTeam)
+                ElevatedButton.icon(
+                  onPressed: _addMemberField,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Agregar Jugador'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.tealAccent.withOpacity(0.2),
+                    foregroundColor: Colors.tealAccent,
+                  ),
                 ),
-              ),
               const SizedBox(height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -155,6 +205,19 @@ class _TeamInputDialogState extends State<TeamInputDialog> {
                   ElevatedButton(
                     onPressed: () {
                       if (_formKey.currentState!.validate()) {
+                        if (widget.isEsportsMode &&
+                            _memberControllers.length !=
+                                widget.playersPerTeam) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                  'Se requieren exactamente ${widget.playersPerTeam} jugadores'),
+                              backgroundColor: Colors.orange,
+                            ),
+                          );
+                          return;
+                        }
+
                         // Create team and return it
                         final team = Team(
                           name: _teamNameController.text.trim(),

@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:stepper_touch/stepper_touch.dart';
 import '../models/team.dart';
+import '../models/esport_game.dart';
+import '../models/tournament_format.dart';
 import '../widgets/custom_loading_animation.dart';
 import '../widgets/epic_animated_background.dart';
-import '../widgets/team_input_dialog.dart';
 import '../widgets/tournament_bracket.dart';
+import '../widgets/team_input_dialog.dart';
+import 'esport_selection_page.dart';
+import '/constants/sports.dart';
+import 'sport_selection_page.dart';
 
 class TournamentHomePage extends StatefulWidget {
   const TournamentHomePage({super.key});
@@ -23,6 +28,10 @@ class _TournamentHomePageState extends State<TournamentHomePage>
   bool _isLoading = false;
   bool _isTeamMode = false;
   bool _isAutoSort = false;
+  bool _isEsportsMode = false;
+  EsportGame? _selectedGame;
+  Sport? _selectedSport;
+  TournamentFormat _tournamentFormat = TournamentFormat.singleElimination;
 
   // Animation controllers
   late AnimationController _revealController;
@@ -52,11 +61,64 @@ class _TournamentHomePageState extends State<TournamentHomePage>
     );
   }
 
+  void _selectSport() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SportSelectionPage(
+          onSportSelected: (sport) {
+            setState(() {
+              _selectedSport = sport;
+              _isTeamMode = true;
+              _playersPerTeam = sport.playersPerTeam;
+            });
+            Navigator.pop(context);
+          },
+        ),
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _selectedSport = result;
+        _isTeamMode = true;
+        _playersPerTeam = result.playersPerTeam;
+      });
+    }
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
     _revealController.dispose();
     super.dispose();
+  }
+
+  void _selectEsportGame() async {
+    final result = await Navigator.of(context).push<EsportGame>(
+      MaterialPageRoute(
+        builder: (context) => EsportsSelectionPage(
+          onGameSelected: (game) {
+            setState(() {
+              _selectedGame = game;
+              _isEsportsMode = true;
+              _isTeamMode = true;
+              _playersPerTeam = game.playersPerTeam;
+            });
+            Navigator.of(context).pop(game);
+          },
+        ),
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _selectedGame = result;
+        _isEsportsMode = true;
+        _isTeamMode = true;
+        _playersPerTeam = result.playersPerTeam;
+      });
+    }
   }
 
   void _nextStep() {
@@ -212,7 +274,11 @@ class _TournamentHomePageState extends State<TournamentHomePage>
 
     final result = await showDialog<Team>(
       context: context,
-      builder: (context) => const TeamInputDialog(),
+      builder: (context) => TeamInputDialog(
+        playersPerTeam: _playersPerTeam,
+        isEsportsMode: _isEsportsMode,
+        selectedGame: _selectedGame,
+      ),
     );
 
     if (result != null) {
@@ -364,280 +430,325 @@ class _TournamentHomePageState extends State<TournamentHomePage>
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16.0),
-            child: Stepper(
-              type: StepperType.vertical,
-              currentStep: _currentStep,
-              onStepContinue: _nextStep,
-              onStepCancel: _previousStep,
-              controlsBuilder: (context, details) {
-                return Padding(
-                  padding: const EdgeInsets.only(top: 20.0),
-                  child: Row(
-                    children: [
-                      if (details.currentStep < 2)
-                        ElevatedButton(
-                          onPressed: details.onStepContinue,
-                          child: const Text('Siguiente'),
+            child: Column(
+              children: [
+                if (_selectedGame == null && _selectedSport == null)
+                  Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _selectSport,
+                          icon: const Icon(Icons.sports),
+                          label: const Text('Deportes Tradicionales'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 12,
+                            ),
+                          ),
                         ),
-                      if (details.currentStep > 0) ...[
-                        const SizedBox(width: 12),
-                        TextButton(
-                          onPressed: details.onStepCancel,
-                          child: const Text('Anterior'),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _selectEsportGame,
+                          icon: const Icon(Icons.sports_esports),
+                          label: const Text('Esports'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 12,
+                            ),
+                          ),
                         ),
                       ],
-                    ],
-                  ),
-                );
-              },
-              steps: [
-                Step(
-                  title: const Text('Configurar Torneo'),
-                  content: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SwitchListTile(
-                        title: const Text('Modo de Torneo'),
-                        subtitle: Text(_isTeamMode
-                            ? 'Torneo de Equipos'
-                            : 'Torneo Individual'),
-                        value: _isTeamMode,
-                        onChanged: (_) => _toggleMode(),
-                        activeColor: Colors.tealAccent,
-                      ),
-                      if (_isTeamMode) ...[
-                        const SizedBox(height: 8),
-                        SwitchListTile(
-                          title: const Text('Sorteo Automático'),
-                          subtitle: Text(_isAutoSort
-                              ? 'Los equipos se formarán automáticamente'
-                              : 'Crear equipos manualmente'),
-                          value: _isAutoSort,
-                          onChanged: (_) => _toggleAutoSort(),
-                          activeColor: Colors.tealAccent,
-                        ),
-                        if (_isAutoSort) ...[
-                          const SizedBox(height: 8),
-                          ListTile(
-                            title: const Text('Jugadores por Equipo'),
-                            trailing: SizedBox(
-                              width: 120,
-                              child: StepperTouch(
-                                initialValue: _playersPerTeam,
-                                onChanged: (value) {
-                                  if (value >= 2 && value <= 5) {
-                                    setState(() => _playersPerTeam = value);
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: Stepper(
+                      type: StepperType.vertical,
+                      currentStep: _currentStep,
+                      onStepContinue: _nextStep,
+                      onStepCancel: _previousStep,
+                      controlsBuilder: (context, details) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 20.0),
+                          child: Row(
+                            children: [
+                              if (details.currentStep < 2)
+                                ElevatedButton(
+                                  onPressed: details.onStepContinue,
+                                  child: const Text('Siguiente'),
+                                ),
+                              if (details.currentStep > 0) ...[
+                                const SizedBox(width: 12),
+                                TextButton(
+                                  onPressed: details.onStepCancel,
+                                  child: const Text('Anterior'),
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
+                      steps: [
+                        Step(
+                          title: const Text('Configurar Torneo'),
+                          content: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Juego seleccionado: ${_selectedGame?.name}',
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Jugadores por equipo: ${_selectedGame?.playersPerTeam}',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              if (_isAutoSort) ...[
+                                SwitchListTile(
+                                  title: const Text('Sorteo Automático'),
+                                  subtitle: Text(_isAutoSort
+                                      ? 'Los equipos se formarán automáticamente'
+                                      : 'Crear equipos manualmente'),
+                                  value: _isAutoSort,
+                                  onChanged: (_) => _toggleAutoSort(),
+                                  activeColor: Colors.tealAccent,
+                                ),
+                              ],
+                              const SizedBox(height: 16),
+                              const Text(
+                                'Número de Participantes',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Center(
+                                child: StepperTouch(
+                                  initialValue: _participants,
+                                  onChanged: (value) {
+                                    if (value >= 2 && value <= 32) {
+                                      setState(() => _participants = value);
+                                    }
+                                  },
+                                  direction: Axis.horizontal,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              DropdownButtonFormField<TournamentFormat>(
+                                value: _tournamentFormat,
+                                decoration: const InputDecoration(
+                                  labelText: 'Formato del Torneo',
+                                ),
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: TournamentFormat.singleElimination,
+                                    child: Text('Eliminación Simple'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: TournamentFormat.doubleElimination,
+                                    child: Text('Eliminación Doble'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: TournamentFormat.roundRobin,
+                                    child: Text('Todos contra Todos'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: TournamentFormat.groupStage,
+                                    child: Text('Fase de Grupos'),
+                                  ),
+                                ],
+                                onChanged: (format) {
+                                  if (format != null) {
+                                    setState(() => _tournamentFormat = format);
                                   }
                                 },
-                                direction: Axis.horizontal,
                               ),
-                            ),
+                            ],
                           ),
-                        ],
-                      ],
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Número de Participantes',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                          isActive: _currentStep >= 0,
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Center(
-                        child: StepperTouch(
-                          initialValue: _participants,
-                          onChanged: (value) {
-                            if (value >= 2 && value <= 32) {
-                              setState(() => _participants = value);
-                            }
-                          },
-                          direction: Axis.horizontal,
+                        Step(
+                          title: Text(_isAutoSort
+                              ? 'Ingresar Jugadores'
+                              : 'Ingresar Equipos'),
+                          content: Form(
+                            key: _formKey,
+                            child: Column(
+                              children: [
+                                if (!_isTeamMode || _isAutoSort) ...[
+                                  TextFormField(
+                                    controller: _nameController,
+                                    decoration: InputDecoration(
+                                      labelText: _isAutoSort
+                                          ? 'Nombre del jugador'
+                                          : 'Nombre del participante',
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      prefixIcon: const Icon(Icons.person),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                ],
+                                ElevatedButton.icon(
+                                  onPressed: _addParticipant,
+                                  icon: Icon(_isTeamMode && !_isAutoSort
+                                      ? Icons.groups
+                                      : Icons.person_add),
+                                  label: Text(_isAutoSort
+                                      ? 'Agregar Jugador'
+                                      : (_isTeamMode
+                                          ? 'Agregar Equipo'
+                                          : 'Agregar Nombre')),
+                                ),
+                                const SizedBox(height: 24),
+                                if (_isAutoSort && _playerNames.isNotEmpty) ...[
+                                  const Divider(),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Jugadores agregados:',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  ...List.generate(
+                                    _playerNames.length,
+                                    (index) => ListTile(
+                                      leading: CircleAvatar(
+                                        backgroundColor:
+                                            Colors.tealAccent.withOpacity(0.2),
+                                        child: Text('${index + 1}'),
+                                      ),
+                                      title: Text(
+                                        _playerNames[index],
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w500),
+                                      ),
+                                      trailing: IconButton(
+                                        icon: const Icon(Icons.delete,
+                                            color: Colors.redAccent),
+                                        onPressed: () {
+                                          setState(() {
+                                            _playerNames.removeAt(index);
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'Jugadores: ${_playerNames.length}/$requiredPlayers\n'
+                                    'Equipos posibles: $possibleTeams/${_participants}',
+                                    style: const TextStyle(fontSize: 16),
+                                  ),
+                                ] else if (_participantsList.isNotEmpty) ...[
+                                  const Divider(),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _isTeamMode
+                                        ? 'Equipos agregados:'
+                                        : 'Participantes agregados:',
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  ...List.generate(
+                                    _participantsList.length,
+                                    (index) => ListTile(
+                                      leading: CircleAvatar(
+                                        backgroundColor:
+                                            Colors.tealAccent.withOpacity(0.2),
+                                        child: Text('${index + 1}'),
+                                      ),
+                                      title: Text(
+                                        _isTeamMode
+                                            ? (_participantsList[index] as Team)
+                                                .name
+                                            : _participantsList[index]
+                                                .toString(),
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w500),
+                                      ),
+                                      subtitle: _isTeamMode
+                                          ? Text(
+                                              '${(_participantsList[index] as Team).members.length} miembros')
+                                          : null,
+                                      trailing: IconButton(
+                                        icon: const Icon(Icons.delete,
+                                            color: Colors.redAccent),
+                                        onPressed: () {
+                                          setState(() {
+                                            _participantsList.removeAt(index);
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    '${_isTeamMode ? "Equipos" : "Participantes"} agregados: ${_participantsList.length}/$_participants',
+                                    style: const TextStyle(fontSize: 16),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          isActive: _currentStep >= 1,
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      if (_isAutoSort) ...[
-                        Text(
-                          'Jugadores necesarios: $requiredPlayers\n'
-                          'Jugadores por equipo: $_playersPerTeam',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
+                        Step(
+                          title: const Text('Llaves del Torneo'),
+                          content: _isLoading
+                              ? const CustomLoadingAnimation()
+                              : Column(
+                                  children: [
+                                    FadeTransition(
+                                      opacity: _revealAnimation,
+                                      child: SlideTransition(
+                                        position: Tween<Offset>(
+                                          begin: const Offset(0, 0.5),
+                                          end: Offset.zero,
+                                        ).animate(_revealAnimation),
+                                        child: TournamentBracket(
+                                          participants: _participantsList,
+                                          isTeamMode: _isTeamMode,
+                                          isEsportsMode: _isEsportsMode,
+                                          selectedGame: _selectedGame,
+                                          tournamentFormat: _tournamentFormat,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                          isActive: _currentStep >= 2,
                         ),
-                      ] else ...[
-                        Text(
-                          'Participantes seleccionados: $_participants',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  isActive: _currentStep >= 0,
-                ),
-                Step(
-                  title: Text(_isAutoSort
-                      ? 'Ingresar Jugadores'
-                      : (_isTeamMode
-                          ? 'Ingresar Equipos'
-                          : 'Ingresar Nombres')),
-                  content: Form(
-                    key: _formKey,
-                    child: Column(
-                      children: [
-                        if (!_isTeamMode || _isAutoSort) ...[
-                          TextFormField(
-                            controller: _nameController,
-                            decoration: InputDecoration(
-                              labelText: _isAutoSort
-                                  ? 'Nombre del jugador'
-                                  : 'Nombre del participante',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              prefixIcon: const Icon(Icons.person),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
-                        ElevatedButton.icon(
-                          onPressed: _addParticipant,
-                          icon: Icon(_isTeamMode && !_isAutoSort
-                              ? Icons.groups
-                              : Icons.person_add),
-                          label: Text(_isAutoSort
-                              ? 'Agregar Jugador'
-                              : (_isTeamMode
-                                  ? 'Agregar Equipo'
-                                  : 'Agregar Nombre')),
-                        ),
-                        const SizedBox(height: 24),
-                        if (_isAutoSort && _playerNames.isNotEmpty) ...[
-                          const Divider(),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Jugadores agregados:',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          ...List.generate(
-                            _playerNames.length,
-                            (index) => ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor:
-                                    Colors.tealAccent.withOpacity(0.2),
-                                child: Text('${index + 1}'),
-                              ),
-                              title: Text(
-                                _playerNames[index],
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w500),
-                              ),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete,
-                                    color: Colors.redAccent),
-                                onPressed: () {
-                                  setState(() {
-                                    _playerNames.removeAt(index);
-                                  });
-                                },
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Jugadores: ${_playerNames.length}/$requiredPlayers\n'
-                            'Equipos posibles: $possibleTeams/${_participants}',
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                        ] else if (_participantsList.isNotEmpty) ...[
-                          const Divider(),
-                          const SizedBox(height: 8),
-                          Text(
-                            _isTeamMode
-                                ? 'Equipos agregados:'
-                                : 'Participantes agregados:',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          ...List.generate(
-                            _participantsList.length,
-                            (index) => ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor:
-                                    Colors.tealAccent.withOpacity(0.2),
-                                child: Text('${index + 1}'),
-                              ),
-                              title: Text(
-                                _isTeamMode
-                                    ? (_participantsList[index] as Team).name
-                                    : _participantsList[index].toString(),
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w500),
-                              ),
-                              subtitle: _isTeamMode
-                                  ? Text(
-                                      '${(_participantsList[index] as Team).members.length} miembros')
-                                  : null,
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete,
-                                    color: Colors.redAccent),
-                                onPressed: () {
-                                  setState(() {
-                                    _participantsList.removeAt(index);
-                                  });
-                                },
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            '${_isTeamMode ? "Equipos" : "Participantes"} agregados: ${_participantsList.length}/$_participants',
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                        ],
                       ],
                     ),
                   ),
-                  isActive: _currentStep >= 1,
-                ),
-                Step(
-                  title: const Text('Llaves del Torneo'),
-                  content: _isLoading
-                      ? const CustomLoadingAnimation()
-                      : Column(
-                          children: [
-                            FadeTransition(
-                              opacity: _revealAnimation,
-                              child: SlideTransition(
-                                position: Tween<Offset>(
-                                  begin: const Offset(0, 0.5),
-                                  end: Offset.zero,
-                                ).animate(_revealAnimation),
-                                child: TournamentBracket(
-                                  participants: _participantsList,
-                                  isTeamMode: _isTeamMode,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                  isActive: _currentStep >= 2,
-                ),
               ],
             ),
           ),
         ),
       ),
+      floatingActionButton: _selectedGame != null
+          ? FloatingActionButton(
+              onPressed: _selectEsportGame,
+              child: const Icon(Icons.sports_esports),
+            )
+          : null,
     );
   }
 }
